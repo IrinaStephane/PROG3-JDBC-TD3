@@ -16,11 +16,11 @@ public class DBConnection {
         this.password = dotenv.get("DB_PASSWORD");
     }
 
-    public Connection getDBConnection() throws SQLException{
+    public Connection getDBConnection(){
         try {
             return DriverManager.getConnection(url,username, password);
         } catch (SQLException e) {
-            throw new SQLException(e);
+            throw new RuntimeException(e);
         }
     }
 

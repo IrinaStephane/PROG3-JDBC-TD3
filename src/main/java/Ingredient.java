@@ -5,6 +5,8 @@ public class Ingredient {
     private CategoryEnum category;
     private Dish dish;
 
+    public Ingredient() {}
+
     public Ingredient(int id, String name, Double price, CategoryEnum category, Dish dish) {
         this.id = id;
         this.name = name;
