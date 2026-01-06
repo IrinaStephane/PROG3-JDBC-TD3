@@ -168,4 +168,77 @@ public class DataRetriever {
             dbConnection.close(connection);
         }
     }
+
+    public Dish saveDish(Dish dishToSave) {
+        DBConnection dbConnection = new DBConnection();
+        Connection connection = dbConnection.getDBConnection();
+
+        try {
+            connection.setAutoCommit(false);
+
+            boolean exists;
+            String checkQuery = "SELECT id FROM dish WHERE id = ?";
+            try (PreparedStatement checkStmt = connection.prepareStatement(checkQuery)) {
+                checkStmt.setInt(1, dishToSave.getId());
+                ResultSet rs = checkStmt.executeQuery();
+                exists = rs.next();
+            }
+
+            if (!exists) {
+                String insertQuery = "INSERT INTO dish(name, dish_type) VALUES (?, ?::dish_type_enum) RETURNING id";
+                try (PreparedStatement insertStmt = connection.prepareStatement(insertQuery)) {
+                    insertStmt.setString(1, dishToSave.getName());
+                    insertStmt.setString(2, dishToSave.getDishType().name());
+                    ResultSet rs = insertStmt.executeQuery();
+                    if (rs.next()) {
+                        dishToSave.setId(rs.getInt("id"));
+                    }
+                }
+            } else {
+                String updateQuery = "UPDATE dish SET name = ?, dish_type = ?::dish_type_enum WHERE id = ?";
+                try (PreparedStatement updateStmt = connection.prepareStatement(updateQuery)) {
+                    updateStmt.setString(1, dishToSave.getName());
+                    updateStmt.setString(2, dishToSave.getDishType().name());
+                    updateStmt.setInt(3, dishToSave.getId());
+                    updateStmt.executeUpdate();
+                }
+            }
+
+            if (dishToSave.getIngredients() != null) {
+                String dissocQuery = "UPDATE ingredient SET id_dish = NULL WHERE id_dish = ?";
+                try (PreparedStatement dissocStmt = connection.prepareStatement(dissocQuery)) {
+                    dissocStmt.setInt(1, dishToSave.getId());
+                    dissocStmt.executeUpdate();
+                }
+
+                String assocQuery = "UPDATE ingredient SET id_dish = ? WHERE id = ?";
+                try (PreparedStatement assocStmt = connection.prepareStatement(assocQuery)) {
+                    for (Ingredient ingredient : dishToSave.getIngredients()) {
+                        assocStmt.setInt(1, dishToSave.getId());
+                        assocStmt.setInt(2, ingredient.getId());
+                        assocStmt.executeUpdate();
+                    }
+                }
+            }
+
+            connection.commit();
+            return dishToSave;
+
+        } catch (SQLException e) {
+            try {
+                connection.rollback();
+            } catch (SQLException ex) {
+                throw new RuntimeException(ex);
+            }
+            throw new RuntimeException(e);
+
+        } finally {
+            try {
+                connection.setAutoCommit(true);
+            } catch (SQLException ignored) {
+            }
+            dbConnection.close(connection);
+        }
+    }
+
 }
