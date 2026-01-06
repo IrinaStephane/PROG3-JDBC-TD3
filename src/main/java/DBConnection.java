@@ -1,5 +1,3 @@
-package exo;
-
 import io.github.cdimascio.dotenv.Dotenv;
 
 import java.sql.Connection;
@@ -18,11 +16,21 @@ public class DBConnection {
         this.password = dotenv.get("DB_PASSWORD");
     }
 
-    public Connection getConnection() throws SQLException{
+    public Connection getDBConnection() throws SQLException{
         try {
             return DriverManager.getConnection(url,username, password);
         } catch (SQLException e) {
             throw new SQLException(e);
+        }
+    }
+
+    public void close(Connection connection) {
+        if (connection != null) {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 }

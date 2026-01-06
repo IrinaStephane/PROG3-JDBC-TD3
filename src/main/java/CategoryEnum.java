@@ -1,5 +1,3 @@
-package exo;
-
 public enum CategoryEnum {
     VEGETABLE,
     ANIMAL,

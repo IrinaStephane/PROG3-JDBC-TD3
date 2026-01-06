@@ -1,15 +1,12 @@
-package exo;
-
 import java.util.List;
-import java.util.Objects;
 
 public class Dish {
     private int id;
     private String name;
-    private DishType dishType;
+    private DishTypeEnum dishType;
     private List<Ingredient> ingredients;
 
-    public Dish(int id, String name, DishType dishType, List<Ingredient> ingredients) {
+    public Dish(int id, String name, DishTypeEnum dishType, List<Ingredient> ingredients) {
         this.id = id;
         this.name = name;
         this.dishType = dishType;
@@ -32,11 +29,11 @@ public class Dish {
         this.name = name;
     }
 
-    public DishType getDishType() {
+    public DishTypeEnum getDishType() {
         return dishType;
     }
 
-    public void setDishType(DishType dishType) {
+    public void setDishType(DishTypeEnum dishType) {
         this.dishType = dishType;
     }
 
@@ -44,20 +41,14 @@ public class Dish {
         return ingredients;
     }
 
+    public Double getDishPrice() {
+        return ingredients.stream()
+                .mapToDouble(Ingredient::getPrice)
+                .sum();
+    }
+
     public void setIngredients(List<Ingredient> ingredients) {
         this.ingredients = ingredients;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
-        Dish dish = (Dish) o;
-        return id == dish.id && Objects.equals(name, dish.name) && dishType == dish.dishType && Objects.equals(ingredients, dish.ingredients);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id, name, dishType, ingredients);
     }
 
     @Override

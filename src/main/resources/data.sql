@@ -12,6 +12,5 @@ VALUES (1, 'Laitue', 800.00, 'VEGETABLE', 1),
        (4, 'Chocolat', 3000.00, 'OTHER', 4),
        (5, 'Beurre', 2500.00, 'DAIRY', 4);
 
-select setvail('"Dish_id_seq"', select(max(id) from "dish"));
-select setvail('"Ingredient_id_seq"', select(max(id) from "ingredient"));
-
+SELECT setval('dish_id_seq', (SELECT MAX(id) FROM dish));
+SELECT setval('ingredient_id_seq', (SELECT MAX(id) FROM ingredient));
