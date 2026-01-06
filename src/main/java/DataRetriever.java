@@ -248,11 +248,11 @@ public class DataRetriever {
 
         try {
             String query = """
-                SELECT DISTINCT d.id AS dish_id, d.name AS dish_name, d.dish_type
-                FROM dish d
-                JOIN ingredient i ON i.id_dish = d.id
-                WHERE i.name ILIKE ?
-                """;
+                    SELECT DISTINCT d.id AS dish_id, d.name AS dish_name, d.dish_type
+                    FROM dish d
+                    JOIN ingredient i ON i.id_dish = d.id
+                    WHERE i.name ILIKE ?
+                    """;
 
             try (PreparedStatement stmt = connection.prepareStatement(query)) {
                 stmt.setString(1, "%" + ingredientName + "%"); // recherche partielle
@@ -280,4 +280,80 @@ public class DataRetriever {
         return dishes;
     }
 
+    public List<Ingredient> findIngredientsByCriteria(String ingredientName, CategoryEnum category, String dishName, int page, int size) {
+        List<Ingredient> ingredients = new ArrayList<>();
+        DBConnection dbConnection = new DBConnection();
+        Connection connection = dbConnection.getDBConnection();
+
+        try {
+            StringBuilder query = new StringBuilder(
+                    """
+                            SELECT i.id, i.name, i.price, i.category, i.id_dish, d.name AS dish_name
+                            FROM ingredient i
+                            LEFT JOIN dish d ON i.id_dish = d.id
+                            WHERE 1=1
+                            """);
+
+            List<Object> params = new ArrayList<>();
+
+            if (ingredientName != null && !ingredientName.isEmpty()) {
+                query.append(" AND i.name ILIKE ?");
+                params.add("%" + ingredientName + "%");
+            }
+
+            if (category != null) {
+                query.append(" AND i.category = ?::ingredient_category");
+                params.add(category.name());
+            }
+
+            if (dishName != null && !dishName.isEmpty()) {
+                query.append(" AND d.name ILIKE ?");
+                params.add("%" + dishName + "%");
+            }
+
+            query.append(" LIMIT ? OFFSET ?");
+            params.add(size);
+            params.add(page * ((page- 1) * size));
+
+            try (PreparedStatement stmt = connection.prepareStatement(query.toString())) {
+                for (int i = 0; i < params.size(); i++) {
+                    Object param = params.get(i);
+                    if (param instanceof String) {
+                        stmt.setString(i + 1, (String) param);
+                    } else if (param instanceof Integer) {
+                        stmt.setInt(i + 1, (Integer) param);
+                    } else {
+                        throw new RuntimeException("Type de paramètre inattendu");
+                    }
+                }
+
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        Ingredient ingredient = new Ingredient();
+                        ingredient.setId(rs.getInt("id"));
+                        ingredient.setName(rs.getString("name"));
+                        ingredient.setPrice(rs.getDouble("price"));
+                        ingredient.setCategory(CategoryEnum.valueOf(rs.getString("category")));
+
+                        int dishId = rs.getInt("id_dish");
+                        if (!rs.wasNull()) {
+                            Dish dish = new Dish();
+                            dish.setId(dishId);
+                            dish.setName(rs.getString("dish_name"));
+                            ingredient.setDish(dish);
+                        }
+
+                        ingredients.add(ingredient);
+                    }
+                }
+            }
+
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        } finally {
+            dbConnection.close(connection);
+        }
+
+        return ingredients;
+    }
 }
