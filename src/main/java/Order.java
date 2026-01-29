@@ -50,7 +50,7 @@ public class Order {
                 '}';
     }
 
-    Double getTotalAmountWithoutVat() {
+    Double getTotalAmountWithoutVat()    {
         throw new RuntimeException("Not implemented");
     }
 

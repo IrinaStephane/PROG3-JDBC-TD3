@@ -1,4 +1,5 @@
 import java.sql.*;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -6,7 +7,7 @@ import java.util.stream.Collectors;
 
 public class DataRetriever {
 
-    Order findOrderByReference(String reference) {
+    public Order findOrderByReference(String reference) {
         DBConnection dbConnection = new DBConnection();
         try (Connection connection = dbConnection.getConnection()) {
             PreparedStatement preparedStatement = connection.prepareStatement("""
@@ -54,7 +55,7 @@ public class DataRetriever {
         }
     }
 
-    Dish findDishById(Integer id) {
+    public Dish findDishById(Integer id) {
         DBConnection dbConnection = new DBConnection();
         Connection connection = dbConnection.getConnection();
         try {
@@ -84,7 +85,7 @@ public class DataRetriever {
     }
 
 
-    Ingredient saveIngredient(Ingredient toSave) {
+    public Ingredient saveIngredient(Ingredient toSave) {
         String upsertIngredientSql = """
                     INSERT INTO ingredient (id, name, price, category)
                     VALUES (?, ?, ?, ?::dish_type)
@@ -126,7 +127,7 @@ public class DataRetriever {
         }
     }
 
-    private void insertIngredientStockMovements(Connection conn, Ingredient ingredient) {
+    public void insertIngredientStockMovements(Connection conn, Ingredient ingredient) {
         List<StockMovement> stockMovementList = ingredient.getStockMovementList();
         String sql = """
                 insert into stock_movement(id, id_ingredient, quantity, type, unit, creation_datetime)
@@ -155,7 +156,7 @@ public class DataRetriever {
     }
 
 
-    Ingredient findIngredientById(Integer id) {
+    public Ingredient findIngredientById(Integer id) {
         DBConnection dbConnection = new DBConnection();
         try (Connection connection = dbConnection.getConnection()) {
             PreparedStatement preparedStatement = connection.prepareStatement("select id, name, price, category from ingredient where id = ?;");
@@ -174,7 +175,7 @@ public class DataRetriever {
         }
     }
 
-    List<StockMovement> findStockMovementsByIngredientId(Integer id) {
+    private List<StockMovement> findStockMovementsByIngredientId(Integer id) {
 
         DBConnection dbConnection = new DBConnection();
         Connection connection = dbConnection.getConnection();
@@ -209,7 +210,7 @@ public class DataRetriever {
     }
 
 
-    Dish saveDish(Dish toSave) {
+    public Dish saveDish(Dish toSave) {
         String upsertDishSql = """
                     INSERT INTO dish (id, selling_price, name, dish_type)
                     VALUES (?, ?, ?, ?::dish_type)
@@ -419,6 +420,74 @@ public class DataRetriever {
 
         try (PreparedStatement ps = conn.prepareStatement(setValSql)) {
             ps.executeQuery();
+        }
+    }
+
+    public Order saveOrder(Order orderToSave) {
+        try (Connection conn = new DBConnection().getConnection()) {
+            conn.setAutoCommit(false);
+
+            for (DishOrder dishOrder : orderToSave.getDishOrderList()) {
+                Dish dish = findDishById(dishOrder.getDish().getId());
+
+                for (DishIngredient di : dish.getDishIngredients()) {
+
+                    double quantityNeeded = di.getQuantity() * dishOrder.getQuantity();
+
+                    Ingredient ingredient = di.getIngredient();
+                    StockValue currentStock = ingredient.getStockValueAt(Instant.now());
+
+                    double stockQuantityConverted;
+
+                    if (currentStock.getUnit() != di.getUnit()) {
+                        stockQuantityConverted = UnitConverter.convert(
+                                ingredient.getName(),                 // ex: "Tomate"
+                                currentStock.getQuantity(),            // quantité stock
+                                currentStock.getUnit(),                // unité stock
+                                di.getUnit()                            // unité recette
+                        );
+                    } else {
+                        stockQuantityConverted = currentStock.getQuantity();
+                    }
+
+                    if (stockQuantityConverted < quantityNeeded) {
+                        conn.rollback();
+                        throw new RuntimeException(
+                                "Stock insuffisant pour l'ingrédient : " + ingredient.getName()
+                        );
+                    }
+                }
+
+            }
+
+            String sqlOrder = "INSERT INTO \"order\" (reference, creation_datetime) VALUES (?, ?) RETURNING id";
+            int orderId;
+            try (PreparedStatement ps = conn.prepareStatement(sqlOrder)) {
+                ps.setString(1, orderToSave.getReference());
+                ps.setTimestamp(2, Timestamp.from(orderToSave.getCreationDatetime()));
+                ResultSet rs = ps.executeQuery();
+                rs.next();
+                orderId = rs.getInt(1);
+            }
+
+            // 3. INSERTION DES LIGNES DE COMMANDE
+            String sqlDishOrder = "INSERT INTO dish_order (id_order, id_dish, quantity) VALUES (?, ?, ?)";
+            try (PreparedStatement ps = conn.prepareStatement(sqlDishOrder)) {
+                for (DishOrder doItem : orderToSave.getDishOrderList()) {
+                    ps.setInt(1, orderId);
+                    ps.setInt(2, doItem.getDish().getId());
+                    ps.setInt(3, doItem.getQuantity());
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+
+            conn.commit();
+            orderToSave.setId(orderId);
+            return orderToSave;
+
+        } catch (SQLException e) {
+            throw new RuntimeException("Erreur lors de la sauvegarde : " + e.getMessage());
         }
     }
 }
