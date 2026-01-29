@@ -424,8 +424,36 @@ public class DataRetriever {
     }
 
     public Order saveOrder(Order orderToSave) {
+        if (orderToSave == null) throw new RuntimeException("Order is null");
+        if (orderToSave.getTableOrder() == null || orderToSave.getTableOrder().getTable() == null
+                || orderToSave.getTableOrder().getTable().getId() == null) {
+            throw new RuntimeException("Table not provided");
+        }
+        if (orderToSave.getTableOrder().getArrivalDatetime() == null || orderToSave.getTableOrder().getDepartureDatetime() == null) {
+            throw new RuntimeException("Arrival and departure datetime must be provided for the table");
+        }
+
         try (Connection conn = new DBConnection().getConnection()) {
             conn.setAutoCommit(false);
+
+            Integer requestedTableId = orderToSave.getTableOrder().getTable().getId();
+            Instant arrival = orderToSave.getTableOrder().getArrivalDatetime();
+            Instant departure = orderToSave.getTableOrder().getDepartureDatetime();
+
+            if (!isTableAvailable(conn, requestedTableId, arrival, departure)) {
+                List<Table> available = findAvailableTables(conn, arrival, departure);
+                String message;
+                if (available.isEmpty()) {
+                    message = "La table " + requestedTableId + " n'est pas disponible. Aucune table n'est disponible pour cette période.";
+                } else {
+                    String numbers = available.stream()
+                            .map(t -> t.getNumber().toString())
+                            .collect(Collectors.joining(", "));
+                    message = "La table " + requestedTableId + " n'est pas disponible. Tables disponibles : " + numbers;
+                }
+                conn.rollback();
+                throw new RuntimeException(message);
+            }
 
             for (DishOrder dishOrder : orderToSave.getDishOrderList()) {
                 Dish dish = findDishById(dishOrder.getDish().getId());
@@ -441,10 +469,10 @@ public class DataRetriever {
 
                     if (currentStock.getUnit() != di.getUnit()) {
                         stockQuantityConverted = UnitConverter.convert(
-                                ingredient.getName(),                 // ex: "Tomate"
-                                currentStock.getQuantity(),            // quantité stock
-                                currentStock.getUnit(),                // unité stock
-                                di.getUnit()                            // unité recette
+                                ingredient.getName(),
+                                currentStock.getQuantity(),
+                                currentStock.getUnit(),
+                                di.getUnit()
                         );
                     } else {
                         stockQuantityConverted = currentStock.getQuantity();
@@ -470,7 +498,6 @@ public class DataRetriever {
                 orderId = rs.getInt(1);
             }
 
-            // 3. INSERTION DES LIGNES DE COMMANDE
             String sqlDishOrder = "INSERT INTO dish_order (id_order, id_dish, quantity) VALUES (?, ?, ?)";
             try (PreparedStatement ps = conn.prepareStatement(sqlDishOrder)) {
                 for (DishOrder doItem : orderToSave.getDishOrderList()) {
@@ -482,12 +509,64 @@ public class DataRetriever {
                 ps.executeBatch();
             }
 
+            String sqlTableOrder = "INSERT INTO table_order (id_order, id_table, arrival_datetime, departure_datetime) VALUES (?, ?, ?, ?)";
+            try (PreparedStatement ps = conn.prepareStatement(sqlTableOrder)) {
+                ps.setInt(1, orderId);
+                ps.setInt(2, orderToSave.getTableOrder().getTable().getId());
+                ps.setTimestamp(3, Timestamp.from(orderToSave.getTableOrder().getArrivalDatetime()));
+                ps.setTimestamp(4, Timestamp.from(orderToSave.getTableOrder().getDepartureDatetime()));
+                ps.executeUpdate();
+            }
+
             conn.commit();
             orderToSave.setId(orderId);
             return orderToSave;
 
         } catch (SQLException e) {
-            throw new RuntimeException("Erreur lors de la sauvegarde : " + e.getMessage());
+            throw new RuntimeException("Erreur lors de la sauvegarde : " + e.getMessage(), e);
         }
     }
+
+    private boolean isTableAvailable(Connection conn, Integer tableId, Instant arrival, Instant departure) throws SQLException {
+        String sql = """
+            select 1 from table_order
+            where id_table = ?
+              and NOT (departure_datetime <= ? OR arrival_datetime >= ?)
+            limit 1
+            """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, tableId);
+            ps.setTimestamp(2, Timestamp.from(arrival));
+            ps.setTimestamp(3, Timestamp.from(departure));
+            try (ResultSet rs = ps.executeQuery()) {
+                return !rs.next();
+            }
+        }
+    }
+
+    private List<Table> findAvailableTables(Connection conn, Instant arrival, Instant departure) throws SQLException {
+        String sql = """
+            select t.id, t.number
+            from restaurant_table t
+            where t.id not in (
+                select id_table from table_order
+                where NOT (departure_datetime <= ? OR arrival_datetime >= ?)
+            )
+            """;
+        List<Table> tables = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setTimestamp(1, Timestamp.from(arrival));
+            ps.setTimestamp(2, Timestamp.from(departure));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Table t = new Table();
+                    t.setId(rs.getInt("id"));
+                    t.setNumber(rs.getInt("number"));
+                    tables.add(t);
+                }
+            }
+        }
+        return tables;
+    }
+
 }
